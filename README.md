@@ -15,7 +15,14 @@
 
 ---
 
+## Desktop look
+
+<p align="center">
+  <img src="docs/desktop.png" alt="Jarvis desktop" width="860" />
+</p>
+
 ## What it is
+
 
 Jarvis started as a single voice script and is now a package you can extend.
 
