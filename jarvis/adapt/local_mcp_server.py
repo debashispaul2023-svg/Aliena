@@ -28,11 +28,21 @@ def main():
         elif method == "notifications/initialized":
             continue
         elif method == "tools/list":
-            reply(msg_id, {"tools": [{"name": "ping", "description": "local ping", "inputSchema": {"type": "object"}}]})
+            reply(msg_id, {"tools": [
+                {"name": "ping", "description": "local ping", "inputSchema": {"type": "object"}},
+                {"name": "echo", "description": "echo text", "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+                {"name": "write_note", "description": "protected write", "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+            ]})
         elif method == "tools/call":
-            name = (msg.get("params") or {}).get("name")
+            params = msg.get("params") or {}
+            name = params.get("name")
+            args = params.get("arguments") or {}
             if name == "ping":
                 reply(msg_id, {"content": [{"type": "text", "text": "pong"}]})
+            elif name == "echo":
+                reply(msg_id, {"content": [{"type": "text", "text": str(args.get("text", ""))}]})
+            elif name == "write_note":
+                reply(msg_id, {"content": [{"type": "text", "text": "wrote"}]})
             else:
                 reply(msg_id, {"content": [{"type": "text", "text": "unknown"}], "isError": True})
         elif msg_id is not None:
