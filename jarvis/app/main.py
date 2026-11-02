@@ -1813,28 +1813,40 @@ class DesktopPet(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # soft shadow seat
-        p.setBrush(QColor(2, 10, 18, 90))
+        cyan = QColor("#3ad6ff")
+        # seat shadow
         p.setPen(Qt.PenStyle.NoPen)
-        p.drawEllipse(30, 230, 160, 28)
+        p.setBrush(QColor(0, 0, 0, 70))
+        p.drawEllipse(40, 248, 140, 22)
+        # legs
+        p.setBrush(QColor(12, 22, 34))
+        p.setPen(QPen(cyan, 2))
+        p.drawRoundedRect(62, 190, 28, 52, 10, 10)
+        p.drawRoundedRect(130, 190, 28, 52, 10, 10)
         # body
-        p.setBrush(QColor(8, 28, 42))
-        p.setPen(QPen(QColor("#3ad6ff"), 2))
-        p.drawRoundedRect(55, 90, 110, 140, 28, 28)
-        # head
-        p.setBrush(QColor(10, 36, 52))
-        p.drawEllipse(70, 28, 80, 80)
-        # eyes
-        p.setBrush(QColor("#3ad6ff"))
+        p.setBrush(QColor(10, 24, 38))
+        p.drawRoundedRect(58, 108, 104, 92, 22, 22)
+        # chest light
         p.setPen(Qt.PenStyle.NoPen)
-        p.drawEllipse(92, 58, 12, 12)
-        p.drawEllipse(116, 58, 12, 12)
-        # mic badge
-        p.setPen(QPen(QColor("#3ad6ff"), 2))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(92, 145, 36, 36)
-        p.drawLine(110, 181, 110, 198)
-        p.drawLine(98, 198, 122, 198)
+        p.setBrush(QColor(58, 214, 255, 180))
+        p.drawEllipse(96, 138, 28, 28)
+        # helmet
+        p.setBrush(QColor(16, 32, 48))
+        p.setPen(QPen(cyan, 2))
+        p.drawEllipse(62, 28, 96, 96)
+        # visor
+        p.setBrush(QColor(4, 16, 28))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(74, 58, 72, 34, 16, 16)
+        # eyes
+        p.setBrush(cyan)
+        p.drawEllipse(86, 68, 14, 14)
+        p.drawEllipse(120, 68, 14, 14)
+        # antenna
+        p.setPen(QPen(cyan, 2))
+        p.drawLine(110, 28, 110, 10)
+        p.setBrush(cyan)
+        p.drawEllipse(104, 4, 12, 12)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
