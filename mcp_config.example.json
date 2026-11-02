@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "github": {"enabled": false, "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"], "env": ["GITHUB_PERSONAL_ACCESS_TOKEN"]},
+    "filesystem": {"enabled": false, "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"], "roots": ["${JARVIS_FS_ROOT}"]},
+    "fetch": {"enabled": false, "transport": "stdio", "command": "uvx", "args": ["mcp-server-fetch"], "ssrf_block_private": true},
+    "playwright": {"enabled": false, "transport": "stdio", "command": "npx", "args": ["-y", "@playwright/mcp"], "domain_allow": []},
+    "postgres": {"enabled": false, "status": "BLOCKED", "reason": "archived_reference_unsafe", "alternative": "crystaldba/postgres-mcp --access-mode=restricted"},
+    "sequential": {"enabled": false, "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]},
+    "memory": {"enabled": false, "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"], "note": "does not replace SQLite memory"},
+    "docker": {"enabled": false, "transport": "stdio", "privileged": false, "note": "community server; no privileged containers"}
+  }
+}
