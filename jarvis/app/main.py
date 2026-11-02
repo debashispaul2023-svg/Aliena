@@ -1793,6 +1793,63 @@ class HUDFrame(QWidget):
 
 
 # ================= UI =================
+class DesktopPet(QWidget):
+    """Screen-edge mascot. Transparent, always on top. Click opens the HUD."""
+
+    def __init__(self, on_click):
+        super().__init__()
+        self._on_click = on_click
+        self.setFixedSize(220, 280)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.move(screen.right() - 240, screen.bottom() - 290)
+        self._drag = None
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # soft shadow seat
+        p.setBrush(QColor(2, 10, 18, 90))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(30, 230, 160, 28)
+        # body
+        p.setBrush(QColor(8, 28, 42))
+        p.setPen(QPen(QColor("#3ad6ff"), 2))
+        p.drawRoundedRect(55, 90, 110, 140, 28, 28)
+        # head
+        p.setBrush(QColor(10, 36, 52))
+        p.drawEllipse(70, 28, 80, 80)
+        # eyes
+        p.setBrush(QColor("#3ad6ff"))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(92, 58, 12, 12)
+        p.drawEllipse(116, 58, 12, 12)
+        # mic badge
+        p.setPen(QPen(QColor("#3ad6ff"), 2))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(92, 145, 36, 36)
+        p.drawLine(110, 181, 110, 198)
+        p.drawLine(98, 198, 122, 198)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            if self._on_click:
+                self._on_click()
+
+    def mouseMoveEvent(self, event):
+        if self._drag is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag)
+
+    def mouseReleaseEvent(self, event):
+        self._drag = None
+
+
 class JarvisUI(QWidget):
     def __init__(self):
         super().__init__()
@@ -1961,7 +2018,12 @@ if __name__ == "__main__":
     signals.mood_update.connect(window.update_mood)
     signals.keyboard_mode.connect(window.update_keyboard_mode)
 
-    threading.Thread(target=wake_word_listener, daemon=True).start()
+    def open_hud():
+        window.show()
+        window.raise_()
 
-    window.show()
+    pet = DesktopPet(open_hud)
+    pet.show()
+
+    threading.Thread(target=wake_word_listener, daemon=True).start()
     sys.exit(app.exec())
