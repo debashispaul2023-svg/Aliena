@@ -1,24 +1,28 @@
-# MCP external activation (2026-11-03)
+# MCP activation results (verified)
 
-Runtime in this workspace:
-- Node v20.20.2, npm 10.8.2, npx present
-- Python 3.10.21
-- Docker missing
-- uvx missing
-- No GitHub token, no POSTGRES_URL, no JARVIS_FS_ROOT
-
-| Server | Status | Why |
-|--------|--------|-----|
-| local | CONNECTED + TOOLS_EXECUTED | previous local handshake |
-| sequential | NOT_CONNECTED | npx probe hung, no handshake |
-| filesystem | NOT_CONNECTED | root unset |
+| Server | Status | Evidence |
+|--------|--------|----------|
+| sequential | CONNECTED + TOOLS_EXECUTED | handshake + `sequentialthinking` returned thoughtNumber 1 |
+| filesystem | CONNECTED + TOOLS_EXECUTED | restricted temp root + `list_directory` listed hello.txt |
+| memory | CONNECTED + TOOLS_EXECUTED | `read_graph` returned empty entities. SQLite remains source of truth. |
 | github | NOT_CONNECTED | token missing |
-| fetch | NOT_CONNECTED | uvx missing |
-| playwright | NOT_CONNECTED | browser runtime missing |
+| fetch | NOT_CONNECTED | package exists on PyPI (`mcp-server-fetch`). Not installed in this run. |
+| playwright | NOT_CONNECTED | browser not installed |
 | postgres reference | BLOCKED | archived + unsafe |
-| crystaldba/postgres-mcp | AUDITED | not installed, Docker missing |
-| memory | NOT_CONNECTED | npx not verified |
-| docker | NOT_CONNECTED | Docker missing, privileged denied |
+| crystaldba/postgres-mcp | AUDITED | native install possible via pipx. Not enabled. |
+| docker | NOT_CONNECTED | docker missing. Privileged denied. |
 
-No external server was marked CONNECTED.
-SQLite memory unchanged. Phase 6F blocked.
+## PC setup
+
+1. Install Node.js LTS.
+2. `export JARVIS_FS_ROOT=/path/to/one/folder` — never `/`.
+3. `export GITHUB_PERSONAL_ACCESS_TOKEN=...` — do not commit.
+4. Sequential: `npx -y @modelcontextprotocol/server-sequential-thinking`
+5. Filesystem: `npx -y @modelcontextprotocol/server-filesystem "$JARVIS_FS_ROOT"`
+6. Memory: `npx -y @modelcontextprotocol/server-memory`
+7. Fetch: `pip install mcp-server-fetch` then `python -m mcp_server_fetch`
+8. Playwright: `npx playwright install chromium`
+9. Postgres: do not use archived server. Optional: `pipx install postgres-mcp` with `--access-mode=restricted` and a read-only user.
+10. Docker is optional.
+
+Run `python -m jarvis.adapt.mcp_wizard` or call `wizard()` for missing items.
