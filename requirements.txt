@@ -1,0 +1,23 @@
+# Jarvis AI dependencies
+# Core (works offline for memory/skills/orchestrator/router)
+requests>=2.28
+pytest>=7.0
+
+# AI (optional for LIVE Gemini)
+google-generativeai
+
+# Desktop GUI / voice (optional — install for full GUI_RUNTIME / AUDIO_RUNTIME)
+speechrecognition
+pyttsx3
+PyQt6
+pyperclip
+psutil
+pyautogui
+screen-brightness-control
+keyboard
+mss
+Pillow
+AppOpener
+pywhatkit
+opencv-python
+numpy

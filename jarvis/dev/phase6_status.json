@@ -1,0 +1,64 @@
+{
+  "series": "phase6",
+  "updated": "2026-10-20",
+  "overall": "COMPLETE_WITH_EXTERNAL_BLOCKERS",
+  "execution": "BLOCKED",
+  "phases": [
+    {
+      "id": "6B",
+      "name": "workspace jail + models",
+      "status": "PASS_WITH_LIMITATIONS",
+      "notes": "Application-level jail, not an OS sandbox."
+    },
+    {
+      "id": "6C",
+      "name": "requirements, architecture, planning",
+      "status": "PASS_WITH_LIMITATIONS",
+      "notes": "Heuristic offline stages."
+    },
+    {
+      "id": "6D",
+      "name": "multi-file generation",
+      "status": "PASS_WITH_LIMITATIONS",
+      "notes": "Deterministic templates."
+    },
+    {
+      "id": "6E",
+      "name": "static analysis + blocked runner",
+      "status": "PASS_WITH_LIMITATIONS",
+      "notes": "ast.parse only; execution blocked."
+    },
+    {
+      "id": "6F",
+      "name": "isolated generated-code execution",
+      "status": "BLOCKED",
+      "notes": "Offline prep complete 2026-10-24: execution_backend.py validates manifests and fail-closed approval. Real backends return BLOCKED. MOCKED is not execution. ISOLATION_AVAILABLE remains False. Real sandbox NOT TESTED."
+    },
+    {
+      "id": "6G",
+      "name": "offline workflow integration",
+      "status": "PASS_WITH_LIMITATIONS",
+      "notes": "Placeholder-only success is false."
+    },
+    {
+      "id": "6H",
+      "name": "offline intelligence",
+      "status": "PASS_WITH_LIMITATIONS",
+      "notes": "Contradiction detection and project type."
+    },
+    {
+      "id": "6I",
+      "name": "template registry",
+      "status": "PASS_WITH_LIMITATIONS",
+      "notes": "function/library/cli supported; generic rejected."
+    },
+    {
+      "id": "6J",
+      "name": "template quality",
+      "status": "PASS_WITH_LIMITATIONS",
+      "notes": "Stubs with explicit PLACEHOLDER=True."
+    }
+  ],
+  "next_required": "Authorized isolated runtime or XAI_API_KEY plus explicit artifact-transfer approval.",
+  "offline_prep": "PASS_WITH_LIMITATIONS"
+}
