@@ -29,6 +29,7 @@ CATEGORY_EXPERIENCE = "experience"
 CATEGORY_SKILL_REF = "skill_ref"
 CATEGORY_USER_PROFILE = "user_profile"
 CATEGORY_CONVERSATION = "conversation"  # migrated chat turns
+CATEGORY_ARCHIVE = "archive"
 
 VALID_CATEGORIES = {
     CATEGORY_SHORT_TERM,
@@ -41,6 +42,7 @@ VALID_CATEGORIES = {
     CATEGORY_SKILL_REF,
     CATEGORY_USER_PROFILE,
     CATEGORY_CONVERSATION,
+    CATEGORY_ARCHIVE,
 }
 
 # Patterns that should never be stored as ordinary memories
@@ -54,6 +56,17 @@ _SECRET_PATTERNS = [
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _negates(a: str, b: str) -> bool:
+    left, right = a.lower(), b.lower()
+    pairs = [("live in", "do not live in"), ("likes", "does not like")]
+    for pos, neg in pairs:
+        if pos in left and neg in right:
+            return True
+        if pos in right and neg in left:
+            return True
+    return False
 
 
 def looks_like_secret(text: str) -> bool:
@@ -159,6 +172,8 @@ class MemoryStore:
             return None
         if looks_like_secret(content):
             return None
+        if source in {"mcp", "web", "untrusted"} and confidence > 0.4:
+            confidence = 0.4
         if category not in VALID_CATEGORIES:
             category = CATEGORY_LONG_TERM
 
@@ -402,6 +417,40 @@ class MemoryStore:
             out.append(r)
             total += len(r.content)
         return out
+
+    def archive(self, record_id: str) -> Optional[MemoryRecord]:
+        return self.update(record_id, category=CATEGORY_ARCHIVE)
+
+    def backup(self, dest: str | Path) -> Path:
+        path = Path(dest)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn.commit()
+        with sqlite3.connect(str(path)) as out:
+            self._conn.backup(out)
+        return path
+
+    def restore(self, src: str | Path) -> int:
+        src_path = Path(src)
+        if not src_path.exists():
+            return 0
+        self._conn.close()
+        self.db_path.write_bytes(src_path.read_bytes())
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        return self.count()
+
+    def integrity_check(self) -> bool:
+        row = self._conn.execute("PRAGMA integrity_check").fetchone()
+        return bool(row and row[0] == "ok")
+
+    def find_contradictions(self) -> list[tuple[MemoryRecord, MemoryRecord]]:
+        rows = self.list_by_category(CATEGORY_LONG_TERM, limit=200)
+        hits = []
+        for i, a in enumerate(rows):
+            for b in rows[i + 1:]:
+                if _negates(a.content, b.content):
+                    hits.append((a, b))
+        return hits
 
     def count(self, category: Optional[str] = None) -> int:
         cur = self._conn.cursor()
