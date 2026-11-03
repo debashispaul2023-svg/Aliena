@@ -26,6 +26,8 @@ from jarvis.core.models import (
 from jarvis.core.task_graph import TaskGraph, CycleError, UnknownDependencyError
 from jarvis.core.agent_registry import AgentRegistry
 from jarvis.core.agents import build_default_agents
+from jarvis.core.clarification import ClarificationCenter
+from jarvis.core.conflicts import detect_conflict
 
 
 class Orchestrator:
@@ -64,6 +66,8 @@ class Orchestrator:
         self.default_max_retries = default_max_retries
         self._runs: dict[str, OrchestrationResult] = {}
         self._cancel_flags: set[str] = set()
+        self.clarifications = ClarificationCenter()
+        self.paused: dict[str, dict[str, Any]] = {}
 
     def transition(self, task: TaskRecord, new_status: str) -> None:
         allowed = TRANSITIONS.get(task.status, set())
@@ -210,6 +214,26 @@ class Orchestrator:
     ) -> OrchestrationResult:
         run_id = str(uuid.uuid4())
         created = utc_now()
+        question = self.clarifications.needs_clarification(objective)
+        if question:
+            session = self.clarifications.ask(run_id, question)
+            self.paused[run_id] = {
+                "objective": objective,
+                "simple": simple,
+                "created": created,
+            }
+            result = OrchestrationResult(
+                run_id=run_id,
+                objective=objective,
+                status=STATUS_WAITING,
+                tasks=[],
+                error=question,
+                created_at=created,
+                finished_at=utc_now(),
+            )
+            self._runs[run_id] = result
+            return result
+
         if tasks is None:
             tasks = self.plan_simple(
                 objective,
@@ -421,3 +445,17 @@ class Orchestrator:
                         t.status = STATUS_READY
                     return True
         return False
+
+    def resume(self, run_id: str, answer: str):
+        paused = self.paused.get(run_id)
+        if not paused:
+            raise KeyError(run_id)
+        session = self.clarifications.resume(run_id, answer)
+        objective = f"{paused['objective']} :: {session.answer}"
+        return self.run(objective, simple=paused.get("simple", True))
+
+    def escalate_conflict(self, claims: list[dict]) -> dict:
+        found = detect_conflict(claims)
+        if not found:
+            return {"status": "CLEAR"}
+        return found
