@@ -21,13 +21,27 @@ class Agent(Protocol):
 class AgentRegistry:
     def __init__(self) -> None:
         self._agents: dict[str, Agent] = {}
+        self._disabled: set[str] = set()
 
     def register(self, agent: Agent) -> None:
         self._agents[agent.name] = agent
 
+    def enable(self, name: str) -> None:
+        self._disabled.discard(name)
+
+    def disable(self, name: str) -> None:
+        if name not in self._agents:
+            raise KeyError(name)
+        self._disabled.add(name)
+
+    def available(self, name: str) -> bool:
+        return name in self._agents and name not in self._disabled
+
     def get(self, name: str) -> Agent:
         if name not in self._agents:
             raise KeyError(f"Unknown agent: {name}")
+        if name in self._disabled:
+            raise KeyError(f"Agent disabled: {name}")
         return self._agents[name]
 
     def has(self, name: str) -> bool:
