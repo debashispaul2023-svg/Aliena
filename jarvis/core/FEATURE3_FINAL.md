@@ -1,10 +1,17 @@
-# Feature 3 finalization
+# Feature 3 — Multi-Agent System
 
-Parallel runner proves overlap with a barrier.
-Orchestrator pauses on ambiguous requests and resume attaches the answer.
-Conflicts escalate instead of being silently chosen.
-Workflows A, B, C, D, E, F are covered by deterministic local tests.
+Status: COMPLETE
 
-FEATURE_3_MULTI_AGENT = IN_PROGRESS
-Reason: default scheduler is still sequential. Parallel is available but not the default path.
-Phase 6F remains blocked.
+Default Orchestrator.run uses dependency-aware parallel waves via ready_tasks + run_independent.
+Concurrency limit defaults to 4. _parallel_waves counts scheduler waves.
+
+Preserved:
+- Simple-task path
+- Clarification WAITING + resume
+- Conflict escalation
+- Cancellation, retries, approval
+- Memory continuity
+- Agent enable/disable
+- Phase 6F BLOCKED
+
+Parallel evidence: test_default_run_parallel_overlap uses a Barrier so two independent tasks must overlap.
