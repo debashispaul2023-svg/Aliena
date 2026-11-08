@@ -28,12 +28,13 @@ from jarvis.core.agent_registry import AgentRegistry
 from jarvis.core.agents import build_default_agents
 from jarvis.core.clarification import ClarificationCenter
 from jarvis.core.conflicts import detect_conflict
+from jarvis.core.parallel import ready_tasks, run_independent
 
 
 class Orchestrator:
     """Coordinates specialized agents through a dependency-aware task graph.
 
-    Execution is sequential and deterministic by default. Agents run real local
+    Execution uses dependency-aware parallel waves by default. Agents run real local
     logic (file writes, checks) — not print-only stubs.
     """
 
@@ -64,10 +65,12 @@ class Orchestrator:
         self.resource_finder = resource_finder
         self.resource_acquisition = resource_acquisition
         self.default_max_retries = default_max_retries
+        self.concurrency_limit = 4
         self._runs: dict[str, OrchestrationResult] = {}
         self._cancel_flags: set[str] = set()
         self.clarifications = ClarificationCenter()
         self.paused: dict[str, dict[str, Any]] = {}
+        self._parallel_waves = 0
 
     def transition(self, task: TaskRecord, new_status: str) -> None:
         allowed = TRANSITIONS.get(task.status, set())
@@ -271,9 +274,10 @@ class Orchestrator:
             "tasks": tasks,
         }
 
-        # Sequential execution in topological order
+        # Dependency-aware parallel waves (default path)
+        self._parallel_waves = 0
         try:
-            order = graph.topological_order()
+            graph.topological_order()
         except CycleError as exc:
             result = OrchestrationResult(
                 run_id=run_id,
@@ -287,98 +291,53 @@ class Orchestrator:
             self._runs[run_id] = result
             return result
 
-        for task in order:
+        while True:
             if run_id in self._cancel_flags:
-                if task.status not in TERMINAL:
-                    task.status = STATUS_CANCELLED
-                    task.cancelled = True
-                continue
+                for task in tasks:
+                    if task.status not in TERMINAL:
+                        task.status = STATUS_CANCELLED
+                        task.cancelled = True
+                break
 
-            # Dependency failure propagation
-            blocked = False
-            for dep_id in task.dependencies:
-                dep = graph.get(dep_id)
-                if dep and dep.status in (STATUS_FAILED, STATUS_CANCELLED):
-                    task.status = STATUS_FAILED
-                    task.error = f"Dependency {dep_id} is {dep.status}"
-                    task.finished_at = utc_now()
-                    blocked = True
-                    break
-            if blocked:
-                continue
+            # Mark blocked by failed dependencies
+            for task in tasks:
+                if task.status != STATUS_PLANNED:
+                    continue
+                for dep_id in task.dependencies:
+                    dep = graph.get(dep_id)
+                    if dep and dep.status in (STATUS_FAILED, STATUS_CANCELLED):
+                        task.status = STATUS_FAILED
+                        task.error = f"Dependency {dep_id} is {dep.status}"
+                        task.finished_at = utc_now()
+                        break
 
-            if task.requires_approval and not task.approved:
-                task.status = STATUS_REQUIRES_APPROVAL
-                task.updated_at = utc_now()
-                result = OrchestrationResult(
-                    run_id=run_id,
-                    objective=objective,
-                    status=STATUS_REQUIRES_APPROVAL,
-                    tasks=tasks,
-                    error="Approval required before continuing",
-                    created_at=created,
-                    finished_at=utc_now(),
-                )
-                self._runs[run_id] = result
-                return result
+            batch = ready_tasks(graph)
+            if not batch:
+                break
 
-            if not task.agent_name:
-                task.status = STATUS_FAILED
-                task.error = "No agent assigned"
-                continue
-            if not self.registry.has(task.agent_name):
-                task.status = STATUS_FAILED
-                task.error = f"Unknown agent: {task.agent_name}"
-                continue
+            # Approval gate before launching a wave
+            for task in batch:
+                if task.requires_approval and not task.approved:
+                    task.status = STATUS_REQUIRES_APPROVAL
+                    task.updated_at = utc_now()
+                    result = OrchestrationResult(
+                        run_id=run_id,
+                        objective=objective,
+                        status=STATUS_REQUIRES_APPROVAL,
+                        tasks=tasks,
+                        error="Approval required before continuing",
+                        created_at=created,
+                        finished_at=utc_now(),
+                    )
+                    self._runs[run_id] = result
+                    return result
 
-            agent = self.registry.get(task.agent_name)
-            success = False
-            while True:
-                if run_id in self._cancel_flags:
-                    task.status = STATUS_CANCELLED
-                    task.cancelled = True
-                    break
-                task.attempt_count += 1
-                task.status = STATUS_RUNNING if task.attempt_count == 1 else STATUS_RETRYING
-                if task.attempt_count > 1:
-                    task.status = STATUS_RETRYING
-                task.started_at = task.started_at or utc_now()
-                task.updated_at = utc_now()
-                # inject prior outputs
-                if context.get("last_artifact_path") and "path" not in task.inputs:
-                    task.inputs["path"] = context["last_artifact_path"]
-                try:
-                    # mark running via transition rules when possible
-                    ar: AgentResult = agent.execute(task, context)
-                except Exception as exc:
-                    ar = AgentResult(success=False, error=str(exc), mode=getattr(agent, "mode", "DETERMINISTIC"))
+            self._parallel_waves += 1
 
-                if ar.success:
-                    task.outputs = dict(ar.outputs)
-                    task.status = STATUS_COMPLETED
-                    task.finished_at = utc_now()
-                    task.error = None
-                    if "path" in ar.outputs:
-                        context["last_artifact_path"] = ar.outputs["path"]
-                    if ar.outputs.get("passed") is True:
-                        context["tests_passed"] = True
-                    if ar.outputs.get("passed") is False:
-                        context["tests_passed"] = False
-                    success = True
-                    break
-                else:
-                    task.error = ar.error or "agent failed"
-                    context["last_error"] = task.error
-                    if task.attempt_count <= task.max_retries:
-                        task.status = STATUS_RETRYING
-                        continue
-                    task.status = STATUS_FAILED
-                    task.finished_at = utc_now()
-                    break
+            def worker(task: TaskRecord) -> dict:
+                return self._execute_task(task, context, run_id)
 
-            if not success and task.status not in TERMINAL:
-                task.status = STATUS_FAILED
-                task.finished_at = utc_now()
+            run_independent(batch, worker, limit=self.concurrency_limit)
 
         # Aggregate
         if any(t.status == STATUS_CANCELLED for t in tasks) and run_id in self._cancel_flags:
@@ -435,6 +394,69 @@ class Orchestrator:
 
         self._runs[run_id] = result
         return result
+
+
+    def _execute_task(self, task: TaskRecord, context: dict[str, Any], run_id: str) -> dict:
+        """Run one task with retries. Called from parallel waves."""
+        if not task.agent_name:
+            task.status = STATUS_FAILED
+            task.error = "No agent assigned"
+            task.finished_at = utc_now()
+            return {"id": task.task_id, "ok": False}
+        if not self.registry.has(task.agent_name):
+            task.status = STATUS_FAILED
+            task.error = f"Unknown agent: {task.agent_name}"
+            task.finished_at = utc_now()
+            return {"id": task.task_id, "ok": False}
+        try:
+            agent = self.registry.get(task.agent_name)
+        except KeyError as exc:
+            task.status = STATUS_FAILED
+            task.error = str(exc)
+            task.finished_at = utc_now()
+            return {"id": task.task_id, "ok": False}
+
+        success = False
+        while True:
+            if run_id in self._cancel_flags:
+                task.status = STATUS_CANCELLED
+                task.cancelled = True
+                break
+            task.attempt_count += 1
+            task.status = STATUS_RUNNING if task.attempt_count == 1 else STATUS_RETRYING
+            task.started_at = task.started_at or utc_now()
+            task.updated_at = utc_now()
+            if context.get("last_artifact_path") and "path" not in task.inputs:
+                task.inputs["path"] = context["last_artifact_path"]
+            try:
+                ar: AgentResult = agent.execute(task, context)
+            except Exception as exc:
+                ar = AgentResult(success=False, error=str(exc), mode=getattr(agent, "mode", "DETERMINISTIC"))
+            if ar.success:
+                task.outputs = dict(ar.outputs)
+                task.status = STATUS_COMPLETED
+                task.finished_at = utc_now()
+                task.error = None
+                if "path" in ar.outputs:
+                    context["last_artifact_path"] = ar.outputs["path"]
+                if ar.outputs.get("passed") is True:
+                    context["tests_passed"] = True
+                if ar.outputs.get("passed") is False:
+                    context["tests_passed"] = False
+                success = True
+                break
+            task.error = ar.error or "agent failed"
+            context["last_error"] = task.error
+            if task.attempt_count <= task.max_retries:
+                task.status = STATUS_RETRYING
+                continue
+            task.status = STATUS_FAILED
+            task.finished_at = utc_now()
+            break
+        if not success and task.status not in TERMINAL:
+            task.status = STATUS_FAILED
+            task.finished_at = utc_now()
+        return {"id": task.task_id, "ok": success}
 
     def approve_task(self, task_id: str) -> bool:
         for run in self._runs.values():

@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from jarvis.ai.circuit import CircuitBreaker
 from jarvis.ai.providers.base import ProviderResponse
 from jarvis.ai.providers.gemini import GeminiProvider
 from jarvis.ai.providers.deterministic import DeterministicProvider
@@ -74,6 +75,12 @@ class ProviderRouter:
             env_retries = max_retries
         self.max_retries = max(0, env_retries)
         self.retry_backoff_s = max(0.0, retry_backoff_s)
+        self.circuits: dict[str, CircuitBreaker] = {}
+
+    def circuit(self, name: str) -> CircuitBreaker:
+        if name not in self.circuits:
+            self.circuits[name] = CircuitBreaker()
+        return self.circuits[name]
 
     def register(self, provider: Any) -> None:
         self._providers[provider.name] = provider
@@ -204,6 +211,7 @@ class ProviderRouter:
                 resp = p.generate(prompt, timeout=timeout, **kwargs)
                 last_response = resp
                 if resp.success:
+                    self.circuit(name).record_success()
                     return RouterResult(
                         response=resp,
                         selected_provider=name,
@@ -219,6 +227,7 @@ class ProviderRouter:
                     if self.retry_backoff_s:
                         time.sleep(self.retry_backoff_s)
                     continue
+                self.circuit(name).record_failure()
                 break  # move to next provider in chain
 
         # All failed
