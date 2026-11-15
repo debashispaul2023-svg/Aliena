@@ -5,7 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 
-from jarvis.core.models import TaskRecord, STATUS_COMPLETED
+from jarvis.core.models import TaskRecord, STATUS_COMPLETED, STATUS_FAILED
 from jarvis.core.task_graph import TaskGraph
 
 
@@ -27,5 +27,11 @@ def run_independent(tasks: list[TaskRecord], worker: Callable[[TaskRecord], dict
     with ThreadPoolExecutor(max_workers=max(1, limit)) as pool:
         futures = {pool.submit(worker, task): task for task in tasks}
         for future in as_completed(futures):
-            results.append(future.result())
+            try:
+                results.append(future.result())
+            except Exception as exc:  # isolate: one failing worker must not lose the others' results
+                task = futures[future]
+                task.status = STATUS_FAILED
+                task.error = f"worker error: {type(exc).__name__}: {exc}"
+                results.append({"id": task.task_id, "ok": False})
     return results

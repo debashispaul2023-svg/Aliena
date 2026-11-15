@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -11,6 +12,7 @@ from jarvis.ai.circuit import CircuitBreaker
 from jarvis.ai.providers.base import ProviderResponse
 from jarvis.ai.providers.gemini import GeminiProvider
 from jarvis.ai.providers.deterministic import DeterministicProvider
+from jarvis.core.redaction import redact_secrets
 
 
 # Errors that should not be retried
@@ -24,6 +26,12 @@ NON_RETRYABLE = (
     "unavailable",
     "unsupported",
 )
+
+
+# Extra seconds the router waits beyond ``timeout`` so providers that honour the
+# timeout themselves can return their own (more specific) error first.
+_TIMEOUT_GRACE_S = 0.25
+_MAX_ERROR_CHARS = 300
 
 
 @dataclass
@@ -125,6 +133,55 @@ class ProviderRouter:
             return next(iter(self._providers))
         raise RuntimeError("No AI providers registered")
 
+    def _failure(self, name: str, error: str, **metadata: Any) -> ProviderResponse:
+        return ProviderResponse(
+            text="",
+            provider=name,
+            model="",
+            success=False,
+            error=redact_secrets(error)[:_MAX_ERROR_CHARS],
+            mode="OFFLINE",
+            metadata=dict(metadata),
+        )
+
+    def _invoke(self, name: str, provider: Any, prompt: str, timeout: Optional[float], kwargs: dict[str, Any]) -> ProviderResponse:
+        """Call one provider and ALWAYS return a ProviderResponse.
+
+        * exceptions become failed responses (message passed through the redactor)
+        * a malformed return value (None, dict, ...) becomes a failed response
+        * when ``timeout`` is set it is enforced here, not only passed through; a
+          provider that hangs is abandoned (daemon thread) and reported as timed out
+        """
+        try:
+            if timeout is None or timeout <= 0:
+                resp = provider.generate(prompt, timeout=timeout, **kwargs)
+            else:
+                box: dict[str, Any] = {}
+
+                def runner() -> None:
+                    try:
+                        box["resp"] = provider.generate(prompt, timeout=timeout, **kwargs)
+                    except Exception as exc:  # reported below
+                        box["exc"] = exc
+
+                worker = threading.Thread(target=runner, name=f"router-{name}", daemon=True)
+                worker.start()
+                worker.join(timeout + _TIMEOUT_GRACE_S)
+                if worker.is_alive():
+                    return self._failure(
+                        name, f"provider timed out after {timeout}s (enforced by router)", router_timeout=True
+                    )
+                if "exc" in box:
+                    raise box["exc"]
+                resp = box.get("resp")
+        except Exception as exc:
+            return self._failure(name, f"provider raised {type(exc).__name__}: {exc}")
+        if resp is None or not hasattr(resp, "success") or not hasattr(resp, "text"):
+            return self._failure(name, f"provider returned invalid response type: {type(resp).__name__}")
+        if not resp.success and getattr(resp, "error", None):
+            resp.error = redact_secrets(resp.error)
+        return resp
+
     def _is_retryable(self, error: Optional[str]) -> bool:
         if not error:
             return False
@@ -205,10 +262,15 @@ class ProviderRouter:
         last_response: Optional[ProviderResponse] = None
         for idx, name in enumerate(chain):
             p = self._providers[name]
+            if not self.circuit(name).allow():
+                # Open circuit: skip this provider (it is retried after the cooldown).
+                if original_error is None:
+                    original_error = f"circuit open for provider: {name}"
+                continue
             attempted.append(name)
             retries = 0
             while True:
-                resp = p.generate(prompt, timeout=timeout, **kwargs)
+                resp = self._invoke(name, p, prompt, timeout, kwargs)
                 last_response = resp
                 if resp.success:
                     self.circuit(name).record_success()
@@ -222,7 +284,8 @@ class ProviderRouter:
                 # failure
                 if original_error is None:
                     original_error = resp.error
-                if retries < self.max_retries and self._is_retryable(resp.error):
+                router_timed_out = bool(getattr(resp, "metadata", None) and resp.metadata.get("router_timeout"))
+                if not router_timed_out and retries < self.max_retries and self._is_retryable(resp.error):
                     retries += 1
                     if self.retry_backoff_s:
                         time.sleep(self.retry_backoff_s)
@@ -230,8 +293,10 @@ class ProviderRouter:
                 self.circuit(name).record_failure()
                 break  # move to next provider in chain
 
-        # All failed
+        # All failed (or every provider's circuit was open)
         err = original_error or (last_response.error if last_response else "All providers failed")
+        if not attempted:
+            err = f"{err}; no provider available (all circuits open)" if err else "no provider available (all circuits open)"
         return RouterResult(
             response=ProviderResponse(
                 text="",

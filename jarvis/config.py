@@ -62,9 +62,23 @@ def load_config(base_dir: str | Path | None = None) -> dict[str, Any]:
 def save_config(config: dict[str, Any], base_dir: str | Path | None = None) -> None:
     """Persist config. Silently ignores write errors (original behavior)."""
     path = config_path(base_dir)
+    tmp = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2)
+        # Serialise first so a bad value can never touch the existing file.
+        payload = json.dumps(config, indent=2)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)  # atomic on POSIX and Windows
+        tmp = None
     except Exception:
         pass
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except Exception:
+                pass

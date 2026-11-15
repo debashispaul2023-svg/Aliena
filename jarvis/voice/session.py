@@ -133,6 +133,11 @@ class VoicePipeline:
             if self.session.state == "ERROR":
                 self.session.transition("IDLE")
 
+    def cleanup(self) -> None:
+        self._cancel.set()
+        with self._lock:
+            self.session.state = "IDLE"
+
     def cancel(self) -> None:
         self._cancel.set()
         with self._lock:

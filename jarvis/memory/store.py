@@ -9,10 +9,13 @@ Does not store secrets (API keys, passwords, tokens).
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import sqlite3
+import threading
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +47,10 @@ VALID_CATEGORIES = {
     CATEGORY_CONVERSATION,
     CATEGORY_ARCHIVE,
 }
+
+# Current memory schema version (stored in meta.schema_version). Changes must be
+# additive; see ALIENA_DATABASE_SCHEMA.md.
+SCHEMA_VERSION = 1
 
 # Patterns that should never be stored as ordinary memories
 _SECRET_PATTERNS = [
@@ -101,6 +108,12 @@ class MemoryStore:
     """Persistent SQLite memory store."""
 
     def __init__(self, db_path: str | Path) -> None:
+        # Re-entrant lock: every public method is serialised (see _install_locking
+        # at the bottom of this module). The single shared connection is opened with
+        # check_same_thread=False, so without this lock concurrent threads corrupt
+        # each other's cursors/transactions (verified defect, Phase 3).
+        self._lock = threading.RLock()
+        self.last_restore_error: Optional[str] = None
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -109,6 +122,10 @@ class MemoryStore:
 
     def _init_schema(self) -> None:
         cur = self._conn.cursor()
+        # Remember whether this is a brand-new database BEFORE creating anything.
+        existed = cur.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memories'"
+        ).fetchone() is not None
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS memories (
@@ -141,7 +158,32 @@ class MemoryStore:
             )
             """
         )
+        # Version stamp ONLY for newly created databases. An existing database is
+        # never written to merely by opening it (protected baseline DBs stay
+        # byte-identical); an unstamped existing DB is reported as version 1 by
+        # schema_version() because its table layout is identical.
+        if not existed:
+            cur.execute(
+                "INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)",
+                ("schema_version", str(SCHEMA_VERSION)),
+            )
         self._conn.commit()
+
+    def schema_version(self) -> int:
+        """Stored schema version. An existing, unstamped database (the baseline
+        layout) reports ``1``; ``0`` only if unreadable / no memories table."""
+        try:
+            row = self._conn.execute(
+                "SELECT value FROM meta WHERE key = ?", ("schema_version",)
+            ).fetchone()
+            if row:
+                return int(row[0])
+            has = self._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memories'"
+            ).fetchone()
+            return 1 if has else 0
+        except Exception:
+            return 0
 
     def close(self) -> None:
         try:
@@ -430,13 +472,71 @@ class MemoryStore:
         return path
 
     def restore(self, src: str | Path) -> int:
+        """Replace the live database with a backup. Fail closed.
+
+        Returns the record count after a successful restore. Returns 0 and leaves
+        the live database untouched when the source is missing or is not a valid
+        memory database; the reason is stored in ``last_restore_error``.
+
+        Before overwriting, the current database is copied to
+        ``<db>.pre_restore_<timestamp>`` (never deleted automatically).
+        """
+        self.last_restore_error = None
         src_path = Path(src)
         if not src_path.exists():
+            self.last_restore_error = "source_missing"
             return 0
-        self._conn.close()
-        self.db_path.write_bytes(src_path.read_bytes())
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        try:
+            if src_path.resolve() == self.db_path.resolve():
+                self.last_restore_error = "source_is_live_db"
+                return self.count()
+        except Exception:
+            pass
+
+        # 1. Validate the source read-only before touching anything.
+        uri = src_path.resolve().as_uri() + "?mode=ro"
+        try:
+            probe = sqlite3.connect(uri, uri=True)
+            try:
+                check = probe.execute("PRAGMA integrity_check").fetchone()
+                has_table = probe.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memories'"
+                ).fetchone()
+            finally:
+                probe.close()
+        except Exception:
+            self.last_restore_error = "source_not_a_valid_database"
+            return 0
+        if not check or check[0] != "ok":
+            self.last_restore_error = "source_failed_integrity_check"
+            return 0
+        if not has_table:
+            self.last_restore_error = "source_has_no_memories_table"
+            return 0
+
+        # 2. Safety copy of the current database.
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        safety = self.db_path.with_name(f"{self.db_path.name}.pre_restore_{stamp}")
+        try:
+            self.backup(safety)
+        except Exception:
+            self.last_restore_error = "safety_backup_failed"
+            return 0
+
+        # 3. Copy through SQLite's backup API (transactional; no raw byte overwrite).
+        try:
+            src_conn = sqlite3.connect(uri, uri=True)
+            try:
+                src_conn.backup(self._conn)
+            finally:
+                src_conn.close()
+            self._init_schema()
+        except Exception:
+            self.last_restore_error = "restore_failed_live_db_unchanged_or_see_safety_copy"
+            try:
+                return self.count()
+            except Exception:
+                return 0
         return self.count()
 
     def integrity_check(self) -> bool:
@@ -498,6 +598,19 @@ class MemoryStore:
         if not isinstance(data, list):
             return 0
 
+        # Idempotent on re-run: a previous run that was interrupted before the
+        # marker was written already inserted some rows. Count what exists per
+        # (content, timestamp) so only the shortfall is inserted. Identical turns
+        # that genuinely repeat in the source are still preserved (counted).
+        existing: Counter = Counter()
+        existing_by_content: Counter = Counter()  # for source turns that have no timestamp
+        for r in cur.execute(
+            "SELECT content, created_at FROM memories WHERE source = ? AND category = ?",
+            ("migration", CATEGORY_CONVERSATION),
+        ).fetchall():
+            existing[(r[0], r[1])] += 1
+            existing_by_content[r[0]] += 1
+
         inserted = 0
         for item in data:
             if not isinstance(item, dict):
@@ -506,9 +619,18 @@ class MemoryStore:
             text = (item.get("text") or "").strip()
             if not text or looks_like_secret(text):
                 continue
-            ts = item.get("time") or _utc_now()
+            ts = item.get("time")
+            content = f"{role}: {text}"
+            if ts and existing[(content, ts)] > 0:
+                existing[(content, ts)] -= 1  # already migrated by an earlier run
+                existing_by_content[content] -= 1
+                continue
+            if not ts and existing_by_content[content] > 0:
+                existing_by_content[content] -= 1  # no timestamp to compare: match on content
+                continue
+            ts = ts or _utc_now()
             rec = self.save(
-                content=f"{role}: {text}",
+                content=content,
                 category=CATEGORY_CONVERSATION,
                 tags=["migrated", role],
                 importance=0.3,
@@ -522,6 +644,7 @@ class MemoryStore:
                     "UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?",
                     (ts, ts, rec.id),
                 )
+                self._conn.commit()  # keep row + timestamp together if interrupted
                 inserted += 1
         self._conn.commit()
 
@@ -565,3 +688,31 @@ class MemoryStore:
             prefix += "]"
             lines.append(f"{prefix} {r.content}")
         return "\n".join(lines)
+
+
+def _install_locking(cls: type) -> None:
+    """Serialise every public method of ``cls`` with ``self._lock`` (an RLock).
+
+    ``functools.wraps`` keeps names, docstrings and ``inspect.signature`` intact,
+    so the public API is unchanged. The lock is re-entrant, so public methods may
+    call each other (e.g. ``archive`` -> ``update`` -> ``get``).
+    """
+    for name, attr in list(vars(cls).items()):
+        if name.startswith("_") or not callable(attr) or isinstance(attr, (staticmethod, classmethod, property)):
+            continue
+
+        def _make(fn):
+            @functools.wraps(fn)
+            def locked(self, *args, **kwargs):
+                with self._lock:
+                    return fn(self, *args, **kwargs)
+
+            return locked
+
+        setattr(cls, name, _make(attr))
+
+
+_install_locking(MemoryStore)
+
+# Public alias so sibling Part A modules (skills) reuse the same locking helper.
+install_locking = _install_locking

@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
+from jarvis.dev.sensitive_paths import is_sensitive_relative
 
 STATUS_UNAVAILABLE = "UNAVAILABLE"
 STATUS_BLOCKED = "BLOCKED"
@@ -92,6 +93,8 @@ def validate_artifact_path(path: str) -> None:
         raise ArtifactError(f"unsafe path: {path}")
     name = path.rsplit("/", 1)[-1]
     if name in PROTECTED_NAMES or name.endswith(".env") or name.endswith(".pem"):
+        raise ArtifactError(f"protected file rejected: {name}")
+    if is_sensitive_relative(path):  # shared policy (stricter only): e.g. .env.txt, Windows-name variants
         raise ArtifactError(f"protected file rejected: {name}")
     if not any(path.endswith(suf) for suf in ALLOWED_SUFFIXES):
         raise ArtifactError(f"unexpected file type: {path}")

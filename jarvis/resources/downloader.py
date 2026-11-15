@@ -11,6 +11,7 @@ import hashlib
 import ipaddress
 import os
 import re
+import shutil
 import socket
 import tempfile
 import threading
@@ -408,6 +409,22 @@ class DownloadManager:
             )
 
         # Temp file on same filesystem for atomic replace
+        try:
+            free = shutil.disk_usage(self.resource_root).free
+        except OSError as exc:
+            return DownloadResult(
+                success=False,
+                original_url=original_url,
+                error=f"Storage unavailable: {exc}",
+                error_code="fs_error",
+            )
+        if free < 1024:
+            return DownloadResult(
+                success=False,
+                original_url=original_url,
+                error=f"Insufficient disk space: {free} bytes free",
+                error_code="disk_full",
+            )
         tmp_fd, tmp_name = tempfile.mkstemp(
             prefix=".jarvis_dl_",
             suffix=".partial",
@@ -435,14 +452,23 @@ class DownloadManager:
                         allow_redirects=True,
                     ) as resp:
                         final_url = str(resp.url or url)
-                        # Validate final URL after redirects
-                        try:
-                            validate_url(final_url, allow_private=self.allow_private_hosts)
-                        except DownloadError as exc:
+                        # Validate every redirect hop, not only the final URL.
+                        hops = [str(h.url) for h in getattr(resp, "history", [])] + [final_url]
+                        for hop in hops:
+                            try:
+                                validate_url(hop, allow_private=self.allow_private_hosts)
+                            except DownloadError as exc:
+                                raise DownloadError(
+                                    f"Redirect target rejected: {exc.message}",
+                                    code="bad_redirect",
+                                ) from exc
+                        # Best-effort DNS rebind check: re-resolve the final host.
+                        final_host = urlparse(final_url).hostname or ""
+                        if final_host and not self.allow_private_hosts and _is_private_or_local(final_host):
                             raise DownloadError(
-                                f"Redirect target rejected: {exc.message}",
+                                f"Final host resolved to a restricted address: {final_host}",
                                 code="bad_redirect",
-                            ) from exc
+                            )
 
                         if resp.status_code >= 400:
                             raise DownloadError(

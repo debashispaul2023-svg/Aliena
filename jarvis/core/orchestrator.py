@@ -432,6 +432,14 @@ class Orchestrator:
                 ar: AgentResult = agent.execute(task, context)
             except Exception as exc:
                 ar = AgentResult(success=False, error=str(exc), mode=getattr(agent, "mode", "DETERMINISTIC"))
+            if not isinstance(ar, AgentResult):
+                # Agent isolation: a malformed return value fails only this task
+                # (previously it raised AttributeError and aborted the whole run).
+                ar = AgentResult(
+                    success=False,
+                    error=f"agent returned invalid result type: {type(ar).__name__}",
+                    mode=getattr(agent, "mode", "DETERMINISTIC"),
+                )
             if ar.success:
                 task.outputs = dict(ar.outputs)
                 task.status = STATUS_COMPLETED

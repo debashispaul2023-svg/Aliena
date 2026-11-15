@@ -11,8 +11,44 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from jarvis.core.redaction import redact_secrets
+
 _configured = False
 logger = logging.getLogger("jarvis")
+
+
+class RedactingFilter(logging.Filter):
+    """Redact secret-looking text from a record's message, args and traceback.
+
+    Never raises and never drops a record: if redaction itself fails the
+    message is replaced by a fixed marker rather than passed through.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            record.msg = redact_secrets(record.getMessage())
+            record.args = ()
+            if record.exc_info and not record.exc_text:
+                record.exc_text = redact_secrets(
+                    logging.Formatter().formatException(record.exc_info)
+                )
+            elif record.exc_text:
+                record.exc_text = redact_secrets(record.exc_text)
+            if record.stack_info:
+                record.stack_info = redact_secrets(record.stack_info)
+        except Exception:
+            record.msg = "[REDACTED]"
+            record.args = ()
+            record.exc_info = None
+            record.exc_text = None
+        return True
+
+
+class RedactingFormatter(logging.Formatter):
+    """Second line of defence: redact the fully formatted output."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_secrets(super().format(record))
 
 
 def setup_logging(
@@ -33,7 +69,13 @@ def setup_logging(
     for h in list(logger.handlers):
         logger.removeHandler(h)
 
-    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    # Idempotent: remove any earlier RedactingFilter before adding one.
+    for f in list(logger.filters):
+        if isinstance(f, RedactingFilter):
+            logger.removeFilter(f)
+    logger.addFilter(RedactingFilter())
+
+    formatter = RedactingFormatter("%(asctime)s | %(levelname)s | %(message)s")
 
     if log_file is not None:
         path = Path(log_file)
@@ -54,10 +96,11 @@ def setup_logging(
 
 def log_and_print(msg: str, level: str = "info") -> None:
     """Print to console and log at the given level (preserves original helper)."""
-    print(msg)
+    safe = redact_secrets(msg)
+    print(safe)
     log_fn = getattr(logger, level, logger.info)
     try:
-        log_fn(msg)
+        log_fn(safe)
     except Exception:
         # Never let logging failures crash the assistant
         pass

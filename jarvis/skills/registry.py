@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +48,7 @@ class SkillRegistry:
     """
 
     def __init__(self, db_path: str | Path) -> None:
+        self._lock = threading.RLock()  # serialises public methods (see install_locking)
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -563,3 +565,8 @@ class SkillRegistry:
                 failures.append(f"Step {i} lacks action/description")
         # validation_tests may be empty for manual review skills
         return (len(failures) == 0, failures)
+
+
+from jarvis.memory.store import install_locking as _install_locking  # noqa: E402
+
+_install_locking(SkillRegistry)
