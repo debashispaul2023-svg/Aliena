@@ -1,0 +1,254 @@
+{
+  "sheet": "assets/reference/aliena_emotion_sheet_v2.png",
+  "canvas": [
+    401,
+    333
+  ],
+  "anchor_bottom_center": [
+    198,
+    291
+  ],
+  "padding": 24,
+  "emotions": {
+    "normal": {
+      "file": "normal.png",
+      "row": 1,
+      "col": 1,
+      "source_box": [
+        0,
+        0,
+        351,
+        281
+      ],
+      "body_pixels": 57307
+    },
+    "happy": {
+      "file": "happy.png",
+      "row": 1,
+      "col": 2,
+      "source_box": [
+        334,
+        0,
+        668,
+        280
+      ],
+      "body_pixels": 57616
+    },
+    "laugh": {
+      "file": "laugh.png",
+      "row": 1,
+      "col": 3,
+      "source_box": [
+        631,
+        0,
+        938,
+        285
+      ],
+      "body_pixels": 55815
+    },
+    "sad": {
+      "file": "sad.png",
+      "row": 1,
+      "col": 4,
+      "source_box": [
+        909,
+        0,
+        1217,
+        284
+      ],
+      "body_pixels": 54563
+    },
+    "angry": {
+      "file": "angry.png",
+      "row": 1,
+      "col": 5,
+      "source_box": [
+        1213,
+        0,
+        1536,
+        283
+      ],
+      "body_pixels": 58668
+    },
+    "thinking": {
+      "file": "thinking.png",
+      "row": 2,
+      "col": 1,
+      "source_box": [
+        0,
+        261,
+        326,
+        530
+      ],
+      "body_pixels": 52645
+    },
+    "surprised": {
+      "file": "surprised.png",
+      "row": 2,
+      "col": 2,
+      "source_box": [
+        337,
+        258,
+        638,
+        536
+      ],
+      "body_pixels": 54542
+    },
+    "shy": {
+      "file": "shy.png",
+      "row": 2,
+      "col": 3,
+      "source_box": [
+        623,
+        265,
+        918,
+        535
+      ],
+      "body_pixels": 50717
+    },
+    "sleepy": {
+      "file": "sleepy.png",
+      "row": 2,
+      "col": 4,
+      "source_box": [
+        904,
+        263,
+        1222,
+        538
+      ],
+      "body_pixels": 52551
+    },
+    "excited": {
+      "file": "excited.png",
+      "row": 2,
+      "col": 5,
+      "source_box": [
+        1217,
+        262,
+        1536,
+        526
+      ],
+      "body_pixels": 51819
+    },
+    "confused": {
+      "file": "confused.png",
+      "row": 3,
+      "col": 1,
+      "source_box": [
+        0,
+        509,
+        352,
+        778
+      ],
+      "body_pixels": 53841
+    },
+    "embarrassed": {
+      "file": "embarrassed.png",
+      "row": 3,
+      "col": 2,
+      "source_box": [
+        337,
+        514,
+        643,
+        781
+      ],
+      "body_pixels": 53311
+    },
+    "pouting": {
+      "file": "pouting.png",
+      "row": 3,
+      "col": 3,
+      "source_box": [
+        625,
+        516,
+        932,
+        777
+      ],
+      "body_pixels": 48171
+    },
+    "wink": {
+      "file": "wink.png",
+      "row": 3,
+      "col": 4,
+      "source_box": [
+        912,
+        517,
+        1216,
+        784
+      ],
+      "body_pixels": 49974
+    },
+    "cute": {
+      "file": "cute.png",
+      "row": 3,
+      "col": 5,
+      "source_box": [
+        1231,
+        505,
+        1535,
+        779
+      ],
+      "body_pixels": 53829
+    },
+    "calm": {
+      "file": "calm.png",
+      "row": 4,
+      "col": 1,
+      "source_box": [
+        0,
+        756,
+        326,
+        1024
+      ],
+      "body_pixels": 54041
+    },
+    "talking": {
+      "file": "talking.png",
+      "row": 4,
+      "col": 2,
+      "source_box": [
+        317,
+        760,
+        655,
+        1024
+      ],
+      "body_pixels": 52508
+    },
+    "pondering": {
+      "file": "pondering.png",
+      "row": 4,
+      "col": 3,
+      "source_box": [
+        631,
+        752,
+        917,
+        1024
+      ],
+      "body_pixels": 49234
+    },
+    "joyful": {
+      "file": "joyful.png",
+      "row": 4,
+      "col": 4,
+      "source_box": [
+        901,
+        761,
+        1211,
+        1024
+      ],
+      "body_pixels": 51165
+    },
+    "shocked": {
+      "file": "shocked.png",
+      "row": 4,
+      "col": 5,
+      "source_box": [
+        1189,
+        757,
+        1522,
+        1024
+      ],
+      "body_pixels": 56297
+    }
+  }
+}

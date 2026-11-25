@@ -1,105 +1,72 @@
 <p align="center">
-  <img src="docs/logo.png" alt="Jarvis logo" width="420" />
+  <img src="docs/aliena-brand.png" alt="Aliena" width="520">
 </p>
 
-<h1 align="center">Jarvis Voice Assistant</h1>
+<p align="center"><strong>Keyboard-First · Modular · Voice Optional</strong></p>
 
 <p align="center">
-  A modular AI assistant for voice, research, freelancing workflows, and safe offline development.
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Status-Development-orange" alt="Development">
+  <img src="https://img.shields.io/badge/Generated%20Execution-BLOCKED-red" alt="Execution blocked">
 </p>
+
+## System overview
 
 <p align="center">
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" />
-  <img alt="Status" src="https://img.shields.io/badge/status-modular-00C2FF?style=for-the-badge" />
+  <img src="docs/feature-map.png" alt="Aliena architecture and feature map" width="100%">
 </p>
 
----
+## Features
 
-## Desktop look
+| Module | Capability | Status |
+|---|---|---|
+| Core | Persistent memory, multi-agent orchestration, SQLite | **Complete** |
+| AI Router | Provider routing and fallback structure | **Complete — mocked/offline** |
+| Development | Planning, controlled file writing, validation | **Partial** |
+| Resources | Discovery and download manager | **Partial** |
+| Interaction | Keyboard commands, help, clear, basic history | **Partial** |
+| Voice | Voice state and settings | **Partial** |
+| Automation | Desktop permission and adapter layers | **Partial** |
+| Research & Productivity | Knowledge store, tasks, projects, reminders | **Partial** |
+| Plugins & Freelancer | Registry, drafts and approval workflows | **Partial** |
+
+## Interface preview
 
 <p align="center">
-  <img src="docs/desktop.png" alt="Jarvis desktop" width="860" />
+  <img src="docs/desktop.png" alt="Aliena desktop concept preview" width="850">
 </p>
+<p align="center"><sub>Concept preview only; not proof of operational functionality.</sub></p>
 
-## What it is
-
-
-Jarvis started as a single voice script and is now a package you can extend.
-
-- Voice loop with optional neural TTS
-- Memory, skills, and a multi-agent orchestrator
-- Resource finder and download manager
-- Offline development engine with a workspace jail
-- Freelancer drafts, scoring, and approval gates
-- Optional Agent Reach research adapter
-- Hermes-inspired context files, checkpoints, and skill approval
-
-External actions stay behind an approval gate. Generated-code execution stays blocked until a real isolated runner is verified.
-
-## Layout
-
-```text
-jarvis/
-  app/            voice and UI entry
-  ai/             provider router and research
-  memory/         persistent memory
-  skills/         skill registry and learning
-  core/           orchestrator and agents
-  resources/      finder and downloads
-  dev/            offline development engine
-  freelancer/     jobs, proposals, finance
-  integrations/   Agent Reach adapter
-  adapt/          context, checkpoints, MCP registry
-  tests/          pytest suite
-run_jarvis.py     launcher
-```
-
-## Quick start
+## Run locally
 
 ```bash
 python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# macOS / Linux
 source .venv/bin/activate
+
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 python run_jarvis.py
 ```
 
-Voice packages are optional. If the microphone or TTS library is missing, Jarvis falls back to text.
-
-### Neural voice
-
-Free Edge neural voice needs no API key:
-
-```bash
-pip install edge-tts
-```
-
-Set `edge_voice` in `jarvis_config.json`. ElevenLabs is optional and only used if `ELEVENLABS_API_KEY` is set.
-
-## Configuration
-
-Copy `jarvis_config.json` and edit names, wake word, and voice. Do not commit API keys.
-
-| Setting | Purpose |
-|---------|---------|
-| `assistant_name` | Spoken name |
-| `wake_word` | Voice trigger |
-| `edge_voice` | Free neural voice id |
-| `tts_provider` | `edge` or `elevenlabs` |
-
-## Safety
-
-- No hardcoded credentials
-- External submits need explicit approval
-- Retrieved web content is untrusted data
-- Private and loopback URLs are rejected
-- Phase 6F isolated execution remains blocked
-
-## Tests
+Run tests:
 
 ```bash
 PYTHONPATH=. python -m pytest -q
 ```
 
-## License
+## Safety & current limits
 
-Personal project by Debashis Paul. Use and modify for your own work.
+- Keyboard/text mode does not require a microphone.
+- Live Gemini, live research fetching, real desktop drivers and notification delivery are not verified.
+- Plugins are not automatically executed.
+- **Generated-code execution is BLOCKED:** no verified isolated execution provider is available; host fallback is rejected.
+- **Production status: NOT READY.**
+
+See [`ROADMAP.md`](ROADMAP.md) · [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) · [`KEYBOARD-STATUS.md`](KEYBOARD-STATUS.md) · [`MISSION4-SECURITY.md`](MISSION4-SECURITY.md)
+
+<p align="center"><sub>Development build — feature status is not a production-readiness claim.</sub></p>

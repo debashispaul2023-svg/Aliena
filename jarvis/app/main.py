@@ -84,6 +84,7 @@ DESKTOP_AVAILABLE = all(x is not None for x in (QApplication, pyttsx3, sr))
 
 # ================= MODULAR IMPORTS (Phase 1) =================
 from jarvis.config import load_config, save_config
+from jarvis.app import avatar as avatar_logic
 from jarvis.logger import setup_logging, log_and_print
 from jarvis.ai.client import GeminiClient
 from jarvis.memory import MemoryStore
@@ -275,10 +276,13 @@ if QObject is not None and pyqtSignal is not None:
         command_update = pyqtSignal(str)
         mood_update = pyqtSignal(str)
         keyboard_mode = pyqtSignal(bool)
+        avatar_emotion = pyqtSignal(str)
+        avatar_state = pyqtSignal(str)
 else:
     class JarvisSignals:  # type: ignore
         """Stub when PyQt6 is unavailable."""
         status_update = command_update = mood_update = keyboard_mode = None
+        avatar_emotion = avatar_state = None
 
 
 signals = None  # main() এ QApplication তৈরির পর সেট হবে
@@ -297,6 +301,16 @@ def emit_command(text):
 def emit_mood(mood):
     if signals is not None:
         signals.mood_update.emit(mood)
+
+
+def emit_avatar_emotion(name):
+    if signals is not None and getattr(signals, "avatar_emotion", None) is not None:
+        signals.avatar_emotion.emit(name)
+
+
+def emit_avatar_state(state):
+    if signals is not None and getattr(signals, "avatar_state", None) is not None:
+        signals.avatar_state.emit(state)
 
 
 def emit_keyboard_mode(show):
@@ -329,6 +343,10 @@ def speak(text):
     try:
         log_and_print(f"Jarvis: {text}")
         emit_status(text)
+        _emo = avatar_logic.emotion_from_text(text)
+        if _emo != "normal":  # never override a mood already set by the AI tag
+            emit_avatar_emotion(_emo)
+        emit_avatar_state("talking")
         # Prefer free Edge neural voice (no API key). ElevenLabs only if key exists.
         try:
             from jarvis.app.tts_edge import synthesize as edge_synthesize
@@ -358,6 +376,8 @@ def speak(text):
             engine.runAndWait()
     except Exception as e:
         log_and_print(f"Error in speak: {e}", "error")
+    finally:
+        emit_avatar_state("idle")
 
 
 def check_microphone_available():
@@ -593,7 +613,8 @@ def handle_what_do_you_remember(query: str) -> bool:
 
 def parse_emotion_reply(raw_text):
     """মডেলের রিপ্লাই থেকে [idle]/[happy]/[angry] ট্যাগ আলাদা করে (mood, clean_text) রিটার্ন করে।"""
-    match = re.match(r"^\s*\[(idle|happy|angry)\]\s*(.*)$", raw_text.strip(), re.IGNORECASE | re.DOTALL)
+    tags = "|".join(("idle",) + avatar_logic.EMOTIONS)
+    match = re.match(rf"^\s*\[({tags})\]\s*(.*)$", raw_text.strip(), re.IGNORECASE | re.DOTALL)
     if match:
         mood = match.group(1).lower()
         clean_text = match.group(2).strip()
@@ -1226,6 +1247,7 @@ def automation(query):
 # ================= COMMAND HANDLER =================
 def handle_command(query):
     emit_command(query)
+    emit_avatar_state("thinking")
     mood = detect_mood(query)
     if mood != "idle":
         emit_mood(mood)
@@ -1460,6 +1482,8 @@ def handle_command(query):
     except Exception as e:
         log_and_print(f"Command Handler Error: {e}", "error")
         speak("Aw, I couldn't quite process that one, sorry!")
+    finally:
+        emit_avatar_state("idle")
 
 
 # ================= WAKE WORD & MAIN =================
@@ -1654,9 +1678,19 @@ class MoodAvatar(QWidget):
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._animate)
-        self._timer.start(30)
-
+        # One timer per avatar; it runs only while the widget is visible
+        # (see showEvent/hideEvent) so minimizing the HUD pauses animation
+        # instead of leaving a hidden 30ms repaint loop running.
         self._revert_timer = None
+
+    def showEvent(self, event):
+        if not self._timer.isActive():
+            self._timer.start(30)
+        super().showEvent(event)
+
+    def hideEvent(self, event):
+        self._timer.stop()
+        super().hideEvent(event)
 
     def set_mood(self, mood):
         self.mood = mood
@@ -1794,12 +1828,17 @@ class HUDFrame(QWidget):
 
 # ================= UI =================
 class DesktopPet(QWidget):
-    """Screen-edge mascot. Transparent, always on top. Click opens the HUD."""
+    """Screen-edge avatar. Transparent, always on top. Shows one transparent
+    emotion PNG (assets/aliena/emotions/<emotion>.png) animated by AvatarController.
+    A click (press+release without dragging) toggles the HUD."""
+
+    CLICK_SLOP = 5  # px; more movement than this is a drag, not a click
+    FRAME_MS = 33
 
     def __init__(self, on_click):
         super().__init__()
         self._on_click = on_click
-        self.setFixedSize(220, 280)
+        self.setFixedSize(320, 270)
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
@@ -1807,59 +1846,93 @@ class DesktopPet(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         screen = QApplication.primaryScreen().availableGeometry()
-        self.move(screen.right() - 240, screen.bottom() - 290)
+        self.move(screen.right() - 340, screen.bottom() - 280)
         self._drag = None
+        self._press_pos = None
+        self._moved = False
+
+        self._clock = time.monotonic
+        self.controller = avatar_logic.AvatarController(now=self._clock())
+        self._pixmaps = {}
+        base = _resolve_base_dir()
+        for emotion in avatar_logic.EMOTIONS:
+            path = avatar_logic.asset_path(base, emotion)
+            if os.path.isfile(path):
+                pm = QPixmap(path)
+                if not pm.isNull():
+                    self._pixmaps[emotion] = pm.scaled(
+                        self.width(), self.height() - 20,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+        missing = [e for e in avatar_logic.EMOTIONS if e not in self._pixmaps]
+        if missing:
+            log_and_print(f"Avatar assets missing in assets/aliena/emotions: {', '.join(missing)}", "error")
+
+        # exactly one animation timer for the avatar's lifetime
+        self._anim_timer = QTimer(self)
+        self._anim_timer.timeout.connect(self._advance)
+        self._anim_timer.start(self.FRAME_MS)
+
+    # ---- driven by Aliena response / interaction signals ----
+    def set_mood(self, mood):
+        now = self._clock()
+        self.controller.set_emotion(mood, now=now)
+        if str(mood).lower() == "happy":
+            self.controller.set_state("happy", now=now)  # short celebratory bounce
+
+    def set_emotion(self, name):
+        self.controller.set_emotion(name, now=self._clock())
+
+    def set_avatar_state(self, state):
+        self.controller.set_state(state, now=self._clock())
+
+    def _advance(self):
+        self._pose = self.controller.tick(self._clock())
+        self.update()
+
+    _pose = None
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        cyan = QColor("#3ad6ff")
-        # seat shadow
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(0, 0, 0, 70))
-        p.drawEllipse(40, 248, 140, 22)
-        # legs
-        p.setBrush(QColor(12, 22, 34))
-        p.setPen(QPen(cyan, 2))
-        p.drawRoundedRect(62, 190, 28, 52, 10, 10)
-        p.drawRoundedRect(130, 190, 28, 52, 10, 10)
-        # body
-        p.setBrush(QColor(10, 24, 38))
-        p.drawRoundedRect(58, 108, 104, 92, 22, 22)
-        # chest light
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(58, 214, 255, 180))
-        p.drawEllipse(96, 138, 28, 28)
-        # helmet
-        p.setBrush(QColor(16, 32, 48))
-        p.setPen(QPen(cyan, 2))
-        p.drawEllipse(62, 28, 96, 96)
-        # visor
-        p.setBrush(QColor(4, 16, 28))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(74, 58, 72, 34, 16, 16)
-        # eyes
-        p.setBrush(cyan)
-        p.drawEllipse(86, 68, 14, 14)
-        p.drawEllipse(120, 68, 14, 14)
-        # antenna
-        p.setPen(QPen(cyan, 2))
-        p.drawLine(110, 28, 110, 10)
-        p.setBrush(cyan)
-        p.drawEllipse(104, 4, 12, 12)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        pose = self._pose or self.controller.tick(self._clock())
+        pm = self._pixmaps.get(pose.frame) or self._pixmaps.get("normal")
+        if pm is None:
+            # neutral placeholder, only if assets/aliena/emotions is missing entirely
+            violet = QColor("#b46bff")
+            p.setPen(QPen(violet, 3))
+            p.setBrush(QColor(20, 8, 36, 220))
+            p.drawEllipse(30, 50, 160, 160)
+            return
+        cx, cy = self.width() / 2, self.height() - 10  # anchor at bottom centre
+        p.translate(cx, cy + pose.dy)
+        p.rotate(pose.angle)
+        p.scale(pose.scale, pose.scale)
+        p.drawPixmap(int(-pm.width() / 2), -pm.height(), pm)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            if self._on_click:
-                self._on_click()
+            self._press_pos = event.globalPosition().toPoint()
+            self._moved = False
 
     def mouseMoveEvent(self, event):
         if self._drag is not None and event.buttons() & Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self._drag)
+            pos = event.globalPosition().toPoint()
+            if self._press_pos is not None and (pos - self._press_pos).manhattanLength() > self.CLICK_SLOP:
+                self._moved = True
+            if self._moved:
+                self.move(pos - self._drag)
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._drag is not None and not self._moved and self._on_click:
+                self._on_click()
         self._drag = None
+        self._press_pos = None
+        self._moved = False
 
 
 class JarvisUI(QWidget):
@@ -1868,7 +1941,14 @@ class JarvisUI(QWidget):
         assistant_name = config.get("assistant_name", "Jarvis").upper()
         self.setWindowTitle(assistant_name)
         self.setFixedSize(460, 540)
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
+        # Tool: no taskbar entry, so the avatar is the only restore handle.
+        # Minimize == hide(): frameless windows cannot be reliably iconified
+        # (no minimize hint / WM-dependent), and the app keeps running.
+        self.setWindowFlags(
+            Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+        )
         self.setStyleSheet(
             """
             background-color: #020608;
@@ -1885,8 +1965,11 @@ class JarvisUI(QWidget):
             "font-size: 15px; font-weight: bold; border: none; letter-spacing: 4px; color: #3ad6ff;"
         )
 
-        self.avatar = MoodAvatar(self)
-        self.avatar.move((460 - 220) // 2, 46)
+        self.avatar = QLabel(self)
+        self.avatar.setGeometry((460 - 220) // 2, 46, 220, 220)
+        self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.avatar.setStyleSheet("border: none; background: transparent;")
+        self._set_hud_emotion("normal")
 
         self.status_label = QLabel("STANDBY", self)
         self.status_label.setGeometry(20, 290, 420, 60)
@@ -1920,7 +2003,6 @@ class JarvisUI(QWidget):
             """
         )
         self.text_input.returnPressed.connect(self._submit_typed_command)
-        self.text_input.setVisible(False)
 
         self.send_button = QPushButton("SEND", self)
         self.send_button.setGeometry(370, 470, 70, 36)
@@ -1937,7 +2019,19 @@ class JarvisUI(QWidget):
             """
         )
         self.send_button.clicked.connect(self._submit_typed_command)
-        self.send_button.setVisible(False)
+
+        self.minimize_button = QPushButton("\u2014", self)
+        self.minimize_button.setGeometry(420, 8, 30, 26)
+        self.minimize_button.setToolTip("Minimize (click the avatar to restore)")
+        self.minimize_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.minimize_button.setStyleSheet(
+            """
+            QPushButton { background-color: #05141c; color: #3ad6ff;
+                          border: 1px solid #3ad6ff; font-weight: bold; }
+            QPushButton:hover { background-color: #0d2530; }
+            """
+        )
+        self.minimize_button.clicked.connect(self.minimize_hud)
 
         # decorative HUD overlay (corner brackets + scanlines), always on top
         self.hud_frame = HUDFrame(self)
@@ -1952,7 +2046,7 @@ class JarvisUI(QWidget):
         self.tray_icon = QSystemTrayIcon(QIcon(pixmap), self)
         tray_menu = QMenu()
         show_action = QAction("Show", self)
-        show_action.triggered.connect(self.showNormal)
+        show_action.triggered.connect(self.open_hud)
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(lambda: os._exit(0))
         tray_menu.addAction(show_action)
@@ -1961,6 +2055,13 @@ class JarvisUI(QWidget):
         self.tray_icon.setToolTip(f"{config.get('assistant_name', 'Jarvis')} is running")
         self.tray_icon.show()
 
+    def _set_hud_emotion(self, emotion):
+        base = _resolve_base_dir()
+        path = avatar_logic.asset_path(base, emotion if emotion in avatar_logic.EMOTIONS else "normal")
+        if os.path.isfile(path):
+            pm = QPixmap(path).scaled(220, 220, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.avatar.setPixmap(pm)
+
     def update_status(self, text):
         self.status_label.setText(text.upper())
 
@@ -1968,15 +2069,46 @@ class JarvisUI(QWidget):
         self.command_label.setText(f"LAST COMMAND: {text}")
 
     def update_mood(self, mood):
-        self.avatar.set_mood(mood)
+        self._set_hud_emotion(avatar_logic.emotion_for_mood(mood))
         self.hud_frame.set_mood(mood)
 
     def update_keyboard_mode(self, show):
-        self.text_input.setVisible(show)
-        self.send_button.setVisible(show)
+        # The input box is always visible (keyboard-first); this only
+        # adds the no-microphone hint.
         if show:
             self.status_label.setText("NO MIC \u2014 TYPE A COMMAND BELOW")
-            self.text_input.setFocus()
+            if self.isVisible():
+                self.text_input.setFocus()
+
+    # ---- open / minimize / restore (single window instance, never closed) ----
+    def open_hud(self):
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.text_input.setFocus()
+        # some WMs only grant focus after the show event is processed
+        QTimer.singleShot(0, self.text_input.setFocus)
+
+    def minimize_hud(self):
+        # hide() only: threads running commands and the wake-word listener
+        # are untouched, and the process keeps running.
+        self.hide()
+
+    def toggle_hud(self):
+        if self.isVisible():
+            self.minimize_hud()
+        else:
+            self.open_hud()
+
+    def closeEvent(self, event):
+        event.ignore()  # never destroy the window / quit the app
+        self.minimize_hud()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.minimize_hud()
+            return
+        super().keyPressEvent(event)
 
     def _submit_typed_command(self):
         text = self.text_input.text().strip()
@@ -2022,6 +2154,7 @@ if __name__ == "__main__":
         sys.exit(2)
 
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)  # hiding the HUD must not end the app
 
     signals = JarvisSignals()
     window = JarvisUI()
@@ -2031,10 +2164,13 @@ if __name__ == "__main__":
     signals.keyboard_mode.connect(window.update_keyboard_mode)
 
     def open_hud():
-        window.show()
-        window.raise_()
+        # avatar click toggles the one JarvisUI instance (starts hidden)
+        window.toggle_hud()
 
     pet = DesktopPet(open_hud)
+    signals.mood_update.connect(pet.set_mood)               # idle/happy/angry from existing mood system
+    signals.avatar_emotion.connect(pet.set_emotion)         # any of the 15 emotions
+    signals.avatar_state.connect(pet.set_avatar_state)      # idle / talking / thinking / happy
     pet.show()
 
     threading.Thread(target=wake_word_listener, daemon=True).start()
