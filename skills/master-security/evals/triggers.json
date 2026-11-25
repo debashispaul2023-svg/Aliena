@@ -1,0 +1,9 @@
+{
+  "skill": "master-security",
+  "test_cases": [
+    {"input": "start the audit", "should_trigger": true},
+    {"input": "run a pre-launch security check", "should_trigger": true},
+    {"input": "master security review before launch", "should_trigger": true},
+    {"input": "write a nursery rhyme", "should_trigger": false}
+  ]
+}
