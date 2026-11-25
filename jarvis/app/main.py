@@ -13,6 +13,9 @@ import imaplib
 import email as email_lib
 import threading
 import xml.etree.ElementTree as ET
+import subprocess
+import ast
+import operator
 from datetime import datetime
 
 import requests
@@ -889,6 +892,50 @@ def send_email(query):
 
 
 # ================= CALCULATOR =================
+# Safe arithmetic evaluator: only allows numbers and + - * / // % ** ( ) unary +/-
+# Replaces the previous restricted eval() to eliminate the eval surface while
+# preserving supported operations, precedence, parentheses and error behaviour.
+_SAFE_MATH_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+def _safe_eval_math(expr: str):
+    """Evaluate a pure arithmetic expression with no builtins or names."""
+    tree = ast.parse(expr.strip(), mode="eval")
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)):
+                return node.value
+            raise ValueError("only numeric constants allowed")
+        # Python < 3.8 compatibility (ast.Num)
+        if isinstance(node, ast.Num):  # type: ignore[attr-defined]
+            return node.n
+        if isinstance(node, ast.BinOp):
+            op = _SAFE_MATH_OPS.get(type(node.op))
+            if op is None:
+                raise ValueError(f"operator {type(node.op).__name__} not allowed")
+            return op(_eval(node.left), _eval(node.right))
+        if isinstance(node, ast.UnaryOp):
+            op = _SAFE_MATH_OPS.get(type(node.op))
+            if op is None:
+                raise ValueError(f"unary {type(node.op).__name__} not allowed")
+            return op(_eval(node.operand))
+        raise ValueError(f"unsupported expression node: {type(node).__name__}")
+
+    return _eval(tree)
+
+
 def calculate(query):
     expr = query.replace("calculate", "").strip()
     # word replacements
@@ -904,7 +951,7 @@ def calculate(query):
         speak("I can only do plain math with numbers, sorry.")
         return
     try:
-        result = eval(expr, {"__builtins__": {}}, {})
+        result = _safe_eval_math(expr)
         speak(f"That's {result}")
     except Exception as e:
         log_and_print(f"Calculator Error: {e}", "error")
@@ -1075,6 +1122,10 @@ def clipboard_control(query):
 
 # ================= SYSTEM POWER CONTROL =================
 def power_control(query):
+    """Shutdown / restart / sleep with explicit spoken confirmation for all three.
+    Uses subprocess.run(..., shell=False) instead of os.system for safer argument handling.
+    Existing capabilities and OS-specific commands are preserved.
+    """
     system = platform.system()
     try:
         if "shutdown" in query:
@@ -1085,9 +1136,9 @@ def power_control(query):
                 return
             speak("Shutting down. Bye for now!")
             if system == "Windows":
-                os.system("shutdown /s /t 5")
+                subprocess.run(["shutdown", "/s", "/t", "5"], shell=False, check=False)
             else:
-                os.system("shutdown -h now")
+                subprocess.run(["shutdown", "-h", "now"], shell=False, check=False)
         elif "restart" in query:
             speak("Say confirm restart within 10 seconds if you really mean it.")
             confirm = take_command()
@@ -1096,17 +1147,26 @@ def power_control(query):
                 return
             speak("Restarting now.")
             if system == "Windows":
-                os.system("shutdown /r /t 5")
+                subprocess.run(["shutdown", "/r", "/t", "5"], shell=False, check=False)
             else:
-                os.system("shutdown -r now")
+                subprocess.run(["shutdown", "-r", "now"], shell=False, check=False)
         elif "sleep" in query:
+            speak("Say confirm sleep within 10 seconds if you really mean it.")
+            confirm = take_command()
+            if "confirm" not in confirm:
+                speak("Okay, cancelled.")
+                return
             speak("Putting the system to sleep.")
             if system == "Windows":
-                os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
+                # rundll32 with comma-separated entry point; pass as single argv element
+                subprocess.run(
+                    ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
+                    shell=False, check=False
+                )
             elif system == "Darwin":
-                os.system("pmset sleepnow")
+                subprocess.run(["pmset", "sleepnow"], shell=False, check=False)
             else:
-                os.system("systemctl suspend")
+                subprocess.run(["systemctl", "suspend"], shell=False, check=False)
     except Exception as e:
         log_and_print(f"Power Control Error: {e}", "error")
         speak("I couldn't do that power action.")

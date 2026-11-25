@@ -11,3 +11,24 @@ generated_code.py
 screenshots/
 sct.png
 .pytest_cache/
+
+# Local state / databases (never commit personal memory or runtime DBs)
+*.db
+jarvis_memory.db
+jarvis_resources.db
+jarvis_skills.db
+*.sqlite
+*.sqlite3
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

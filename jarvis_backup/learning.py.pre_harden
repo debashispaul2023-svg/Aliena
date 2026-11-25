@@ -1,0 +1,214 @@
+"""Learning pipeline: execution trace → experience → skill candidate → validation.
+
+Generated skills store structured, reviewable procedures. They do NOT execute
+arbitrary code. Activation requires explicit verification.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from .experience import ExperienceStore
+from .models import (
+    Experience,
+    Skill,
+    STATUS_PROPOSED,
+    STATUS_VALIDATING,
+    STATUS_VERIFIED,
+    STATUS_REJECTED,
+)
+from .registry import SkillRegistry
+
+
+def make_synthetic_trace(
+    objective: str = "Process a PDF and extract text tables",
+    success: bool = True,
+) -> dict[str, Any]:
+    """Synthetic execution trace for pipeline demos and unit tests.
+
+    This is NOT a real agent run. Callers must not treat it as production evidence
+    beyond testing the learning pipeline plumbing.
+    """
+    return {
+        "task_id": "synthetic-task-001",
+        "objective": objective,
+        "task_plan": [
+            "Locate PDF file",
+            "Extract text with pdf library",
+            "Parse tables",
+            "Write CSV output",
+            "Run verification checks",
+        ],
+        "tools_used": ["filesystem", "pdf_reader", "code"],
+        "agents_used": ["coder", "tester"],
+        "skills_used": [],
+        "errors": [] if success else ["pdfminer failed on scanned page"],
+        "fixes": [] if success else ["switched to OCR fallback"],
+        "resources": ["https://docs.python.org/3/library/"],
+        "test_results": [
+            {"name": "output_exists", "passed": success},
+            {"name": "row_count_gt_0", "passed": success},
+        ],
+        "outcome": "success" if success else "failure",
+        "notes": "Synthetic trace for learning pipeline unit tests only.",
+        "procedure_hint": [
+            {"step": 1, "action": "Open PDF from path", "tool": "filesystem"},
+            {"step": 2, "action": "Extract text/tables", "tool": "pdf_reader"},
+            {"step": 3, "action": "Normalize rows to CSV", "tool": "code"},
+            {"step": 4, "action": "Validate row count > 0", "tool": "code"},
+        ],
+        "skill_name": "pdf_table_extraction",
+        "skill_category": "document",
+        "when_to_use": "When the user asks to extract tables or structured data from a PDF",
+    }
+
+
+class LearningPipeline:
+    """Orchestrates experience recording and skill-candidate creation.
+
+    Does not run agents. Accepts a caller-supplied execution trace dict.
+    """
+
+    def __init__(
+        self,
+        registry: SkillRegistry,
+        experiences: ExperienceStore,
+    ) -> None:
+        self.registry = registry
+        self.experiences = experiences
+
+    def record_experience_from_trace(self, trace: dict[str, Any]) -> Experience:
+        """Persist an experience from a structured trace. Outcome must be explicit."""
+        outcome = (trace.get("outcome") or "unknown").lower()
+        return self.experiences.record(
+            task_id=str(trace.get("task_id") or ""),
+            objective=str(trace.get("objective") or ""),
+            task_plan=list(trace.get("task_plan") or []),
+            tools_used=list(trace.get("tools_used") or []),
+            agents_used=list(trace.get("agents_used") or []),
+            skills_used=list(trace.get("skills_used") or []),
+            errors=list(trace.get("errors") or []),
+            fixes=list(trace.get("fixes") or []),
+            resources=list(trace.get("resources") or []),
+            test_results=list(trace.get("test_results") or []),
+            outcome=outcome,
+            notes=str(trace.get("notes") or ""),
+            completed=True,
+        )
+
+    def propose_skill_from_trace(
+        self, trace: dict[str, Any], require_success: bool = True
+    ) -> Optional[Skill]:
+        """Analyze a trace and create a PROPOSED skill candidate.
+
+        By default only successful outcomes produce candidates.
+        Procedure is taken from structured steps in the trace (or derived
+        from task_plan as non-executable reviewable steps).
+        """
+        outcome = (trace.get("outcome") or "unknown").lower()
+        if require_success and outcome != "success":
+            return None
+
+        # Prefer explicit structured procedure; fall back to task_plan strings
+        procedure = trace.get("procedure_hint")
+        if not procedure:
+            procedure = [
+                {"step": i + 1, "action": step, "tool": None}
+                for i, step in enumerate(trace.get("task_plan") or [])
+            ]
+        if not procedure:
+            return None
+
+        name = (trace.get("skill_name") or "").strip()
+        if not name:
+            # Derive a simple name from objective
+            obj = (trace.get("objective") or "learned_skill").strip().lower()
+            name = "_".join(obj.split()[:5]) or "learned_skill"
+
+        tests = []
+        for tr in trace.get("test_results") or []:
+            if isinstance(tr, dict):
+                tests.append(
+                    {
+                        "name": tr.get("name", "check"),
+                        "expect_passed": bool(tr.get("passed", False)),
+                    }
+                )
+
+        skill = self.registry.create_skill(
+            name=name,
+            description=f"Learned from task: {trace.get('objective', '')}",
+            category=str(trace.get("skill_category") or "learned"),
+            when_to_use=str(trace.get("when_to_use") or trace.get("objective") or ""),
+            prerequisites=[],
+            required_tools=list(trace.get("tools_used") or []),
+            procedure=list(procedure),
+            examples=[str(trace.get("objective") or "")],
+            known_failures=list(trace.get("errors") or []),
+            successful_patterns=list(trace.get("fixes") or [])
+            + [p for p in (trace.get("successful_patterns") or [])],
+            validation_tests=tests,
+            confidence=0.55 if outcome == "success" else 0.3,
+            source_task=str(trace.get("task_id") or ""),
+            tags=["learned", "auto_candidate"],
+            status=STATUS_PROPOSED,
+        )
+        return skill
+
+    def validate_candidate(
+        self, skill_id: str, structural_only: bool = True
+    ) -> tuple[bool, list[str], Optional[Skill]]:
+        """Run structural validation and transition status accordingly.
+
+        Full agent/runtime validation is deferred to the orchestrator phase.
+        structural_only=True is the supported path in this phase.
+        """
+        skill = self.registry.get(skill_id)
+        if not skill:
+            return False, ["Skill not found"], None
+
+        if skill.status == STATUS_PROPOSED:
+            self.registry.start_validation(skill_id)
+
+        ok, failures = self.registry.run_structural_validation(skill_id)
+        if ok:
+            verified = self.registry.mark_verified(skill_id)
+            return True, [], verified
+        else:
+            rejected = self.registry.mark_rejected(
+                skill_id, reason="; ".join(failures)
+            )
+            return False, failures, rejected
+
+    def run_pipeline(
+        self, trace: dict[str, Any], auto_validate: bool = True
+    ) -> dict[str, Any]:
+        """Full pipeline for a single trace.
+
+        Returns a result dict with experience, candidate skill, and validation
+        outcome. Does not activate skills automatically.
+        """
+        exp = self.record_experience_from_trace(trace)
+        candidate = self.propose_skill_from_trace(trace)
+        result: dict[str, Any] = {
+            "experience_id": exp.experience_id,
+            "outcome": exp.outcome,
+            "skill_id": None,
+            "skill_status": None,
+            "validated": False,
+            "failures": [],
+        }
+        if not candidate:
+            result["failures"] = ["No skill candidate (failed outcome or empty procedure)"]
+            return result
+
+        result["skill_id"] = candidate.skill_id
+        result["skill_status"] = candidate.status
+
+        if auto_validate:
+            ok, failures, final = self.validate_candidate(candidate.skill_id)
+            result["validated"] = ok
+            result["failures"] = failures
+            if final:
+                result["skill_status"] = final.status
+        return result

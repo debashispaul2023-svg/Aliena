@@ -1,23 +1,29 @@
-# Jarvis AI dependencies
+# Jarvis AI dependencies — pinned for reproducible installs and supply-chain safety.
+# Original lower bounds resolved to exact versions. Optional packages stay optional.
+# Do not upgrade major versions without re-testing integrations.
+
 # Core (works offline for memory/skills/orchestrator/router)
-requests>=2.28
-pytest>=7.0
+requests==2.32.3
+pytest==8.3.4
 
 # AI (optional for LIVE Gemini)
-google-generativeai
+# google-generativeai is the package name used by the codebase (legacy).
+# Upstream has moved to google-genai; we deliberately keep this name to avoid
+# a breaking import change. Pin to last widely-used 0.8.x series.
+google-generativeai==0.8.5
 
 # Desktop GUI / voice (optional — install for full GUI_RUNTIME / AUDIO_RUNTIME)
-speechrecognition
-pyttsx3
-PyQt6
-pyperclip
-psutil
-pyautogui
-screen-brightness-control
-keyboard
-mss
-Pillow
-AppOpener
-pywhatkit
-opencv-python
-numpy
+speechrecognition==3.14.0
+pyttsx3==2.98
+PyQt6==6.7.1
+pyperclip==1.9.0
+psutil==6.1.0
+pyautogui==0.9.54
+screen-brightness-control==0.23.0
+keyboard==0.13.5
+mss==9.0.2
+Pillow==11.0.0
+AppOpener==1.7
+pywhatkit==5.4
+opencv-python==4.10.0.84
+numpy==2.1.3

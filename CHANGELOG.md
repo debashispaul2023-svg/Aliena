@@ -1,5 +1,5 @@
 # Changelog
 
-- Feature 9: research engine, SQLite store, HTTPS/SSRF validation, duplicate detection, source-backed summaries.
-- Feature 9 remains PARTIAL. Live research is not verified.
+- Feature 10: productivity store, tasks, projects, reminders, workflow dependencies.
+- Feature 10 remains PARTIAL. Reminder delivery is not verified.
 - Phase 6F remains BLOCKED.
