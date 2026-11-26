@@ -167,7 +167,7 @@ Implemented does not mean production-verified. Live provider integrations and en
 - Development Roadmap (`ROADMAP.md`)
 - Known Limitations (`KNOWN_LIMITATIONS.md`)
 - Security Documentation (`SECURITY.md`)
-- Keyboard Status (`KEYBOARD-STATUS.md`)
+- Keyboard Status (`docs/development/KEYBOARD-STATUS.md`)
 
 ## Roadmap
 
