@@ -1,0 +1,12 @@
+[project]
+name = "log-scanner"
+version = "0.1.0"
+description = "Log Scanner tool"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+log-scanner = "log_scanner.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

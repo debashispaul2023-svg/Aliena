@@ -125,6 +125,14 @@ if not os.path.exists(CONFIG_FILE):
 
 # ================= AI CLIENT (graceful if key missing) =================
 ai_client = GeminiClient()
+try:  # multi-account Gemini (GEMINI_API_KEY_1..3); the original single-key client stays when none is set
+    from jarvis.ai.providers.gemini_multi import build_account_client_if_configured
+
+    _account_client = build_account_client_if_configured()
+    if _account_client is not None:
+        ai_client = _account_client
+except Exception as _gemini_exc:
+    log_and_print(f"Gemini multi-account init skipped: {_gemini_exc}", "warning")
 if not ai_client.available:
     log_and_print(
         f"AI features disabled: {ai_client.last_error}. "
@@ -717,6 +725,33 @@ def set_reminder(query):
         log_and_print(f"Reminder Error: {e}", "error")
         speak("I couldn't set that reminder. Please try again with a format like: remind me to X in 10 minutes.")
 
+
+
+# ================= GEMINI SETTINGS (optional) =================
+gemini_settings_handler = None
+try:
+    from jarvis.ai.gemini_settings import GeminiSettingsCommandHandler
+
+    gemini_settings_handler = GeminiSettingsCommandHandler(speak=lambda _m: speak(_m))
+except Exception as _gs_exc:
+    gemini_settings_handler = None
+    log_and_print(f"Gemini settings init deferred: {_gs_exc}", "warning")
+
+# ================= CREATOR ENGINE (optional) =================
+creator_handler = None
+try:
+    import pathlib as _creator_pathlib
+    from jarvis.creator.command_handler import build_creator_handler
+
+    creator_handler = build_creator_handler(
+        _creator_pathlib.Path(__file__).resolve().parents[2] / "creator_projects",
+        speak=lambda _m: speak(_m),
+        status=lambda _m: emit_status(_m),
+        avatar_state=lambda _s: emit_avatar_state(_s),
+    )
+except Exception as _creator_exc:
+    creator_handler = None
+    log_and_print(f"Creator engine init deferred: {_creator_exc}", "warning")
 
 # ================= NOTES / TODO =================
 def load_notes():
@@ -1320,6 +1355,26 @@ def handle_command(query):
             except Exception as _res_exc:
                 log_and_print(f"Resource command error: {_res_exc}", "error")
                 speak(f"Resource command failed: {_res_exc}")
+                return
+
+        # Gemini accounts settings: "gemini settings|status|check [n]|use n|reload"
+        if gemini_settings_handler is not None:
+            try:
+                if gemini_settings_handler.handle(query):
+                    return
+            except Exception as _gs_exc:
+                log_and_print(f"Gemini settings command error: {_gs_exc}", "error")
+                speak("The Gemini settings command failed.")
+                return
+
+        # Creator Engine: "create a website/api/game ..." and "creator status/files/report/preview/package"
+        if creator_handler is not None:
+            try:
+                if creator_handler.handle(query):
+                    return
+            except Exception as _creator_exc:
+                log_and_print(f"Creator command error: {_creator_exc}", "error")
+                speak("The Creator command failed.")
                 return
 
         if "get angry" in query or "be angry" in query:
@@ -2029,6 +2084,8 @@ class JarvisUI(QWidget):
         self.avatar.setGeometry((460 - 220) // 2, 46, 220, 220)
         self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.avatar.setStyleSheet("border: none; background: transparent;")
+        self.avatar._timer = QTimer(self.avatar)
+        self.avatar._timer.timeout.connect(lambda: None)
         self._set_hud_emotion("normal")
 
         self.status_label = QLabel("STANDBY", self)
@@ -2146,12 +2203,16 @@ class JarvisUI(QWidget):
         self.raise_()
         self.activateWindow()
         self.text_input.setFocus()
+        if hasattr(self.avatar, "_timer") and not self.avatar._timer.isActive():
+            self.avatar._timer.start(30)
         # some WMs only grant focus after the show event is processed
         QTimer.singleShot(0, self.text_input.setFocus)
 
     def minimize_hud(self):
         # hide() only: threads running commands and the wake-word listener
         # are untouched, and the process keeps running.
+        if hasattr(self.avatar, "_timer"):
+            self.avatar._timer.stop()
         self.hide()
 
     def toggle_hud(self):

@@ -8,3 +8,4 @@
 - Desktop automation drivers are not verified. Mouse, keyboard, screenshot, and window control remain UNVERIFIED on desktop and BLOCKED/UNSUPPORTED on Termux/Android.
 - Desktop automation is not available on Android/Termux.
 - Comprehensive testing is still pending.
+- Live provider, microphone, desktop driver, and notification delivery remain NOT VERIFIED.

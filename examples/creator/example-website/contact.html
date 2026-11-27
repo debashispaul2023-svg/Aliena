@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contact - Sunrise Bakery</title>
+  <meta name="description" content="Sunrise Bakery website">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body id="top">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <nav class="nav container" aria-label="Main">
+      <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="32" height="32">Sunrise Bakery</a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links">Menu</button>
+      <ul id="nav-links" class="nav-links">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="menu.html">Menu</a></li>
+        <li><a href="faq.html">Faq</a></li>
+        <li><a href="contact.html" aria-current="page">Contact</a></li>
+      </ul>
+    </nav>
+  </header>
+  <main id="main">
+    <div class="container">
+    <section id="contact" aria-labelledby="contact-title">
+      <h2 id="contact-title">Contact</h2>
+      <form id="contact-form" novalidate>
+        <label>Name<input name="name" type="text" autocomplete="name" required maxlength="80"><span class="field-error" data-for="name"></span></label>
+        <label>Email<input name="email" type="email" autocomplete="email" required><span class="field-error" data-for="email"></span></label>
+        <label>Message<textarea name="message" rows="5" required maxlength="2000"></textarea><span class="field-error" data-for="message"></span></label>
+        <button class="primary" type="submit">Send message</button>
+        <p class="form-status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+    </div>
+  </main>
+  <footer class="site-footer"><div class="container">&copy; Sunrise Bakery. Generated scaffold.</div></footer>
+  <script src="js/main.js" defer></script>
+</body>
+</html>

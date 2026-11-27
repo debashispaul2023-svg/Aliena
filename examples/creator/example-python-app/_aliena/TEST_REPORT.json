@@ -1,0 +1,112 @@
+{
+  "ai_generated": false,
+  "categories": {
+    "browser_tests": {
+      "executed_code": false,
+      "exit_code": null,
+      "prepared_commands": [],
+      "reason": "generated-code execution is BLOCKED (Phase 6F: no verified OS-level isolation)",
+      "status": "blocked"
+    },
+    "build_checks": {
+      "executed_code": false,
+      "exit_code": null,
+      "prepared_commands": [],
+      "reason": "generated-code execution is BLOCKED (Phase 6F: no verified OS-level isolation)",
+      "status": "blocked"
+    },
+    "dependencies": {
+      "errors": 0,
+      "executed_code": false,
+      "status": "passed",
+      "warnings": 0
+    },
+    "imports": {
+      "errors": 0,
+      "executed_code": false,
+      "status": "passed",
+      "warnings": 0
+    },
+    "integration_tests": {
+      "executed_code": false,
+      "exit_code": null,
+      "prepared_commands": [],
+      "reason": "generated-code execution is BLOCKED (Phase 6F: no verified OS-level isolation)",
+      "status": "blocked"
+    },
+    "integrity": {
+      "errors": 0,
+      "executed_code": false,
+      "status": "passed",
+      "warnings": 0
+    },
+    "references": {
+      "errors": 0,
+      "executed_code": false,
+      "status": "passed",
+      "warnings": 0
+    },
+    "runtime_tests": {
+      "executed_code": false,
+      "exit_code": null,
+      "prepared_commands": [],
+      "reason": "generated-code execution is BLOCKED (Phase 6F: no verified OS-level isolation)",
+      "status": "blocked"
+    },
+    "secrets": {
+      "errors": 0,
+      "executed_code": false,
+      "status": "passed",
+      "warnings": 0
+    },
+    "structure": {
+      "errors": 0,
+      "executed_code": false,
+      "status": "passed",
+      "warnings": 0
+    },
+    "syntax": {
+      "errors": 0,
+      "executed_code": false,
+      "status": "passed",
+      "warnings": 0
+    },
+    "unit_tests": {
+      "executed_code": false,
+      "exit_code": null,
+      "prepared_commands": [
+        {
+          "category": "unit_tests",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests"
+          ],
+          "env_hint": "PYTHONPATH=src",
+          "note": "stdlib unittest"
+        }
+      ],
+      "reason": "generated-code execution is BLOCKED (Phase 6F: no verified OS-level isolation)",
+      "status": "blocked"
+    }
+  },
+  "commands_executed": [],
+  "completion": {
+    "complete": true,
+    "reasons": [
+      "static checks passed",
+      "runtime/unit/integration/build/browser tests NOT run: generated-code execution is BLOCKED (Phase 6F: no verified OS-level isolation)"
+    ],
+    "status": "static_verified_runtime_unverified"
+  },
+  "files_checked": 17,
+  "findings": [],
+  "project_id": "cre_42b0b7298efe49d4",
+  "unvalidated_files": [
+    ".gitignore",
+    "env.example"
+  ]
+}

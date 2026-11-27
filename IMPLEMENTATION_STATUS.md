@@ -9,3 +9,4 @@
 - Feature 10: productivity store, tasks, projects, priorities, deadlines, reminders, workflow dependencies. Notifications are stored only and not claimed delivered.
 - Feature 11: plugin registry added. Plugins are not auto-executed.
 - Freelancer module already exists and requires approval for external actions.
+- HUD: emotion avatar wired. Visibility timer restored so open/minimize pauses animation.

@@ -67,7 +67,10 @@ class ProviderRouter:
             for name, p in providers.items():
                 self._providers[name] = p
         else:
-            self._providers["gemini"] = GeminiProvider()
+            # Multi-account provider only when a GEMINI_API_KEY_1..3 variable is set; otherwise the original provider.
+            from jarvis.ai.providers.gemini_multi import make_default_gemini_provider
+
+            self._providers["gemini"] = make_default_gemini_provider()
             self._providers["deterministic"] = DeterministicProvider()
 
         self.preferred = (
